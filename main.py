@@ -1,55 +1,92 @@
+"""
+Main interactive CLI entry point for the Gangline Multi-Agent Harness.
+Allows users to pose objectives, mention specific agents to lead, invoke tools,
+and watch character-driven collaboration and conditional peer review unfold in real time.
+"""
 
+import sys
 import os
-import requests # For Ollama API
 
-if __name__ == "__main__":
+# Ensure root directory is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-    ### Initial Error Checking ####################################################################
+from dotenv import load_dotenv
+load_dotenv("env/.env")
+load_dotenv(".env")
 
-    # If Agents and Memory directories do not exist (first run),
-    # Then create the Agents and Memory directory with default files and store default values in Agents dict and long term memory,
-    # Else load existing .md files into Agents dict and long term memory.
-    agents = {}
-    lt_memory = ""
-    if os.listdir("Agents") == []:
-        os.mkdir("Agents")
-        agents["Default_Jimmy"] = "You are a helpful assistant named Jimmy."
-        os.close(os.open("Agents/Agent_01.md", "x").write(agents["Default_Jimmy"]))
-    else:
-        for x in os.listdir("Agents"):
-            agents[x[:-3]] = open("Agents/" + x, "r").read()
+from harness import (
+    MultiAgentHarness,
+    print_banner,
+    print_agent_roster,
+    console
+)
+from Tools import default_registry
 
-    if os.listdir("Memory") == []:
-        os.mkdir("Memory")
-        lt_memory = ""
-        # TODO: If you never add any default system prompt, remove the .write() from below
-        os.close(os.open("Memory/System.md", "x").write(lt_memory))
-    else:
-        lt_memory = open("Memory/System.md", "r").read()
-    
 
-    ### Super Loop ################################################################################
-    
-    user_query = ""
+def interactive_loop():
+    print_banner()
+
+    console.print("[dim]Initializing Gangline Multi-Agent Harness...[/dim]")
+    try:
+        harness = MultiAgentHarness(
+            agents_dir="Agents",
+            system_memory_file="Memory/System.md",
+            verbose=True
+        )
+    except Exception as e:
+        console.print(f"[bold red]Failed to initialize harness:[/bold red] {e}")
+        return
+
+    print_agent_roster(harness.agents)
+
+    console.print("\n[bold cyan]How to interact with the team:[/bold cyan]")
+    console.print("  - [green]Target an agent:[/green] Mention their name (e.g. '@Huginn', 'Muninn, analyze this', 'Ask Freki')")
+    console.print("  - [green]General objective:[/green] Type any objective and the harness will designate a leader.")
+    console.print("  - [green]Commands:[/green] '/agents' (view profiles), '/tools' (view tools), '/reload' (reload .md files), '/exit'")
+    console.print("-" * 65)
+
     while True:
-        user_query = input("Query:  ")
-        if user_query == "/quit" or user_query == "/exit":
+        try:
+            user_input = console.input("\n[bold bright_green]Objective / Query > [/bold bright_green]").strip()
+        except (KeyboardInterrupt, EOFError):
             break
 
-        
-        # TODO: implement seperate agent personality logic
-        payload = lt_memory + " " + agents["Muninn"] + " " + user_query
+        if not user_input:
+            continue
 
-        response = requests.post("http://localhost:11434/api/generate", json={
-            "model": "gemma3:1b",
-            "prompt": payload,
-            "stream": False
-            })
-        print(response.json()["response"])
+        cmd = user_input.lower()
+        if cmd in ("/exit", "/quit", "exit", "quit"):
+            break
 
-    
-    ### Mop Up ####################################################################################
-    print("Till we meet again.")
-        
+        elif cmd == "/agents":
+            print_agent_roster(harness.agents)
+            continue
 
-    
+        elif cmd == "/tools":
+            console.print("\n[bold green]Registered Tools in Harness:[/bold green]")
+            for t in default_registry.list_tools():
+                console.print(f"  - [bold yellow]{t.name}[/bold yellow]: {t.description}")
+            continue
+
+        elif cmd == "/reload":
+            harness.reload_agents()
+            console.print("[green]Agent character profiles reloaded from Agents/ directory![/green]")
+            print_agent_roster(harness.agents)
+            continue
+
+        elif cmd == "/clear":
+            os.system("cls" if os.name == "nt" else "clear")
+            print_banner()
+            continue
+
+        # Execute objective collaboratively
+        try:
+            harness.execute_objective(user_input)
+        except Exception as e:
+            console.print(f"[bold red]Execution error:[/bold red] {e}")
+
+    console.print("\n[bold cyan]Till we meet again across the nine realms.[/bold cyan]")
+
+
+if __name__ == "__main__":
+    interactive_loop()
